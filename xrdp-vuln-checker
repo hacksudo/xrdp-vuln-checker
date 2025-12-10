@@ -1,0 +1,91 @@
+#!/bin/bash
+
+# Colors
+RED="\e[31m"
+GREEN="\e[32m"
+YELLOW="\e[33m"
+RESET="\e[0m"
+
+echo -e "${YELLOW}========================================${RESET}"
+echo -e "${YELLOW}          XRDP Vulnerability Check       ${RESET}"
+echo -e "${YELLOW}========================================${RESET}"
+
+# ------------------------------------
+# 1. CHECK XRDP INSTALLATION
+# ------------------------------------
+echo -e "\n${YELLOW}[*] Checking if XRDP is installed...${RESET}"
+
+if dpkg -l | grep -q xrdp; then
+    XRDP_VER=$(xrdp -v 2>/dev/null | head -n 1 | awk '{print $2}')
+    echo -e "${GREEN}[ INSTALLED ]${RESET} XRDP Version: ${YELLOW}$XRDP_VER${RESET}"
+else
+    echo -e "${RED}[ NOT INSTALLED ]${RESET} XRDP package not found."
+    exit 0
+fi
+
+# ------------------------------------
+# 2. CHECK XRDP SERVICE STATUS
+# ------------------------------------
+echo -e "\n${YELLOW}[*] Checking XRDP service status...${RESET}"
+
+if systemctl is-active --quiet xrdp; then
+    echo -e "${GREEN}[ RUNNING ]${RESET} XRDP service is active"
+else
+    echo -e "${RED}[ STOPPED ]${RESET} XRDP service is not running"
+fi
+
+# ------------------------------------
+# 3. CHECK XRDP PORT EXPOSURE
+# ------------------------------------
+echo -e "\n${YELLOW}[*] Checking if XRDP port 3389 is exposed...${RESET}"
+
+LISTEN_IP=$(ss -tulpn | grep xrdp | grep 3389 | awk '{print $5}' | cut -d':' -f1)
+
+if [[ "$LISTEN_IP" == "0.0.0.0" ]]; then
+    echo -e "${RED}[ VULNERABLE ]${RESET} XRDP is listening on 0.0.0.0:3389 (internet exposed)"
+else
+    echo -e "${GREEN}[ SAFE ]${RESET} XRDP not exposed publicly"
+fi
+
+# ------------------------------------
+# 4. CHECK KNOWN XRDP CVEs BASED ON VERSION
+# ------------------------------------
+echo -e "\n${YELLOW}[*] Checking for known XRDP vulnerabilities...${RESET}"
+
+if [[ "$XRDP_VER" < "0.9.17" ]]; then
+    echo -e "${RED}[ VULNERABLE ]${RESET} XRDP version is older than 0.9.17"
+
+    echo -e "${RED}Associated CVEs:${RESET}"
+    echo -e " - CVE-2022-23613"
+    echo -e " - CVE-2022-23614"
+    echo -e " - CVE-2021-4011"
+else
+    echo -e "${GREEN}[ SAFE ]${RESET} XRDP version not in known vulnerable range."
+fi
+
+# ------------------------------------
+# 5. CHECK XRDP CONFIG FOR WEAK SECURITY
+# ------------------------------------
+echo -e "\n${YELLOW}[*] Checking XRDP configuration...${RESET}"
+
+CONFIG="/etc/xrdp/xrdp.ini"
+
+if [[ -f "$CONFIG" ]]; then
+    if grep -q "^allow_channels=true" "$CONFIG"; then
+        echo -e "${RED}[ WEAK ]${RESET} XRDP allows all channels (clipboard/file copy risk)"
+    else
+        echo -e "${GREEN}[ SAFE ]${RESET} Channel restrictions enabled"
+    fi
+
+    if grep -q "^max_bpp=32" "$CONFIG"; then
+        echo -e "${RED}[ HIGH-BPP ]${RESET} Using 32-bit color depth (potential DOS vector)"
+    else
+        echo -e "${GREEN}[ SAFE ]${RESET} Standard color depth"
+    fi
+else
+    echo -e "${RED}[ NOT FOUND ]${RESET} XRDP config file missing."
+fi
+
+echo -e "\n${YELLOW}========================================${RESET}"
+echo -e "${YELLOW}             SCAN COMPLETE               ${RESET}"
+echo -e "${YELLOW}========================================${RESET}"
